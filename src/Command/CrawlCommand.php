@@ -2,10 +2,11 @@
 
 namespace App\Command;
 
+use App\Entity\Product;
+use Doctrine\ORM\EntityManagerInterface;
 use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Input\InputArgument;
 use Symfony\Component\Console\Input\InputInterface;
-use Symfony\Component\Console\Input\InputOption;
 use Symfony\Component\Console\Output\OutputInterface;
 use Symfony\Component\DomCrawler\Crawler;
 use Symfony\Contracts\HttpClient\Exception\ClientExceptionInterface;
@@ -22,14 +23,19 @@ class CrawlCommand extends Command
     ];
 
     private HttpClientInterface $client;
-
     private string $projectDir;
+    private EntityManagerInterface $entityManager;
 
-    public function __construct(HttpClientInterface $client, string $projectDir, string $name = null)
-    {
+    public function __construct(
+        HttpClientInterface $client,
+        EntityManagerInterface $entityManager,
+        string $projectDir,
+        string $name = null
+    ) {
         parent::__construct($name);
         $this->client = $client;
         $this->projectDir = $projectDir;
+        $this->entityManager = $entityManager;
     }
 
     protected function configure(): void
@@ -192,14 +198,28 @@ class CrawlCommand extends Command
         $cards = $crawler->filter('.product-thumb');
         $pagination = $crawler->filter('.pagination');
 
+        $result = $cards->each(function ($node) {
+            return [
+                'title' => $node->filter('div > div > h4')->text(),
+                'url' => $node->filter('div > div > h4 > a')->attr('href'),
+                'price' => trim($node->filter('div > div > .price')->text(null))
+            ];
+        });
+
+        foreach ($result as $value) {
+            $product = new Product();
+            $product->setCreatedAt(new \DateTime());
+            $product->setPrice($value['price']);
+            $product->setTitle($value['title']);
+            $product->setUrl($value['url']);
+
+            $this->entityManager->persist($product);
+            $this->entityManager->flush();
+        }
+
         return [
             'pagination' => $pagination,
-            'result' => $cards->each(function ($node) {
-                return [
-                    'title' => $node->filter('div > div > h4')->text(),
-                    'price' => $node->filter('div > div > .price')->text(null)
-                ];
-            })
+            'result' => $result,
         ];
     }
 }
